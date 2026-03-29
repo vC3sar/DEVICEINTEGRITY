@@ -103,6 +103,13 @@
             text-align: center;
             color: #475569;
             font-weight: bold;
+            overflow: hidden;
+        }
+
+        #device-screen img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         table {
@@ -252,13 +259,39 @@
         function updateDeviceImage(brand, model) {
             const screen = document.getElementById('device-screen');
             document.getElementById('device-img').classList.remove('hidden');
-            screen.innerHTML = `
-                <div style="padding-top: 60px;">
-                    <div style="font-size: 50px;">📱</div>
-                    <div style="font-size: 11px; color: #94a3b8; margin-top: 20px; letter-spacing: 1px;">HARDWARE</div>
-                    <div style="font-size: 16px; color: white; margin-top: 10px; text-transform: uppercase;">${brand}<br>${model}</div>
-                </div>
-            `;
+
+            // 1. Limpiar el contenedor
+            screen.innerHTML = '<div style="color: #475569; margin-top: 120px;">Cargando render...</div>';
+
+            // 2. Intentamos cargar imagen de internet (ejemplo basado en modelo)
+            const cleanModel = model.toLowerCase().replace(/\s+/g, '-');
+            const internetUrl = `https://fdn2.gsmarena.com/vv/bigpic/${cleanModel}.jpg`;
+            const DEFAULT_IMAGE = 'assets/default-device.png';
+
+            const img = new Image();
+            img.src = internetUrl;
+            
+            img.onload = () => {
+                screen.innerHTML = '';
+                screen.appendChild(img);
+            };
+
+            img.onerror = () => {
+                console.log("No se encontró render en internet, intentando local...");
+                img.src = DEFAULT_IMAGE;
+                img.onerror = () => {
+                    // Fallback final: Si falla la de internet y la local, mostramos el diseño de emoji original
+                    screen.innerHTML = `
+                        <div style="padding-top: 60px;">
+                            <div style="font-size: 50px;">📱</div>
+                            <div style="font-size: 11px; color: #94a3b8; margin-top: 20px; letter-spacing: 1px;">HARDWARE</div>
+                            <div style="font-size: 16px; color: white; margin-top: 10px; text-transform: uppercase;">${brand}<br>${model}</div>
+                        </div>
+                    `;
+                };
+                screen.innerHTML = '';
+                screen.appendChild(img);
+            };
         }
 
         async function checks() {
