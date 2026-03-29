@@ -215,12 +215,12 @@
             }
 
             statusDiv.innerHTML = '<span style="color: #22c55e;">✔ ¡Dispositivo detectado! Iniciando análisis...</span>';
-            setTimeout(() => { 
+            setTimeout(async () => { 
                 statusDiv.classList.add('hidden'); 
                 btnScan.disabled = false;
                 btnScan.classList.remove('scanning-pulse');
+                await loadInfo();
             }, 2000);
-            loadInfo();
         }
 
         async function loadInfo() {
@@ -252,46 +252,64 @@
     <p>Software del proveedor (CSC): <strong>${data.csc}</strong></p>
   `;
 
-            updateDeviceImage(data.brand, data.model);
+            await updateDeviceImage(data.brand, data.model);
             checks();
         }
 
-        function updateDeviceImage(brand, model) {
+        async function updateDeviceImage(brand, model) {
             const screen = document.getElementById('device-screen');
             document.getElementById('device-img').classList.remove('hidden');
 
             // 1. Limpiar el contenedor
             screen.innerHTML = '<div style="color: #475569; margin-top: 120px;">Cargando render...</div>';
 
-            // 2. Intentamos cargar imagen de internet (ejemplo basado en modelo)
-            const cleanModel = model.toLowerCase().replace(/\s+/g, '-');
-            const internetUrl = `https://fdn2.gsmarena.com/vv/bigpic/${cleanModel}.jpg`;
-            const DEFAULT_IMAGE = 'assets/default-device.png';
-
-            const img = new Image();
-            img.src = internetUrl;
+            // 2. Intentamos cargar imagen de internet con 3 intentos (Base, 4G, 5G)
+            const cleanBrand = brand.toLowerCase().trim().replace(/\s+/g, '-');
+            let cleanModel = model.toLowerCase().trim();
             
-            img.onload = () => {
-                screen.innerHTML = '';
-                screen.appendChild(img);
-            };
+            // Evitar que se repita la marca si el modelo ya la incluye (ej: samsung-samsung-galaxy)
+            if (cleanModel.startsWith(cleanBrand)) {
+                cleanModel = cleanModel.replace(cleanBrand, '').trim();
+            }
 
-            img.onerror = () => {
-                console.log("No se encontró render en internet, intentando local...");
-                img.src = DEFAULT_IMAGE;
-                img.onerror = () => {
-                    // Fallback final: Si falla la de internet y la local, mostramos el diseño de emoji original
-                    screen.innerHTML = `
-                        <div style="padding-top: 60px;">
-                            <div style="font-size: 50px;">📱</div>
-                            <div style="font-size: 11px; color: #94a3b8; margin-top: 20px; letter-spacing: 1px;">HARDWARE</div>
-                            <div style="font-size: 16px; color: white; margin-top: 10px; text-transform: uppercase;">${brand}<br>${model}</div>
-                        </div>
-                    `;
-                };
-                screen.innerHTML = '';
-                screen.appendChild(img);
-            };
+            // Limpieza específica para Samsung (SM-A525M -> a52)
+            if (cleanBrand === 'samsung') {
+                cleanModel = cleanModel.replace(/^sm-/, '');
+                const match = cleanModel.match(/^([a-z]\d{2})/);
+                if (match) cleanModel = match[1];
+                if (!cleanModel.includes('galaxy')) cleanModel = 'galaxy-' + cleanModel;
+            }
+            
+            cleanModel = cleanModel.replace(/\s+/g, '-');
+            const basePath = `https://fdn2.gsmarena.com/vv/bigpic/${cleanBrand}-${cleanModel}`;
+            const attempts = ['', '-4g', '-5g'];
+            let foundUrl = null;
+
+            for (const suffix of attempts) {
+                const testUrl = `${basePath}${suffix}.jpg`;
+                const isOk = await new Promise(resolve => {
+                    const i = new Image();
+                    i.onload = () => resolve(true);
+                    i.onerror = () => resolve(false);
+                    i.src = testUrl;
+                });
+                if (isOk) {
+                    foundUrl = testUrl;
+                    break;
+                }
+            }
+
+            if (foundUrl) {
+                screen.innerHTML = `<img src="${foundUrl}" alt="Device Render">`;
+            } else {
+                console.log("No se encontró render en ninguna variante, usando fallback HTML.");
+                screen.innerHTML = `
+                    <div style="padding-top: 60px;">
+                        <div style="font-size: 50px;">📱</div>
+                        <div style="font-size: 11px; color: #94a3b8; margin-top: 20px; letter-spacing: 1px;">HARDWARE</div>
+                        <div style="font-size: 16px; color: white; margin-top: 10px; text-transform: uppercase;">${brand}<br>${model}</div>
+                    </div>`;
+            }
         }
 
         async function checks() {
@@ -324,7 +342,7 @@
             // Bypass de IMEI usando UI Automator (Simula apertura de Dialer y lectura de pantalla)
             // Este método es necesario en Android 10+ para obtener el IMEI sin permisos de sistema.
             statusDiv.innerHTML = '<div class="loader"></div> Leyendo IMEI (Bypass UI)...';
-            const imeiCmd = `adb shell "input keyevent KEYCODE_CALL; sleep 1; input text '*#06#'; sleep 1; uiautomator dump --compressed /dev/stdout | sed 's/></\\n/g' | grep -A1 IMEI | tail -n1 | sed -e 's/.*text=\\"//' -e 's/\\".*//'; input keyevent KEYCODE_BACK; input keyevent KEYCODE_BACK"`;
+            const imeiCmd = `adb shell "am force-stop com.google.android.dialer; am force-stop com.android.dialer; am force-stop com.samsung.android.dialer; input keyevent KEYCODE_CALL; sleep 1; input text '*#06#'; sleep 1; uiautomator dump --compressed /dev/stdout | sed 's/></\\n/g' | grep -A1 IMEI | tail -n1 | sed -e 's/.*text=\\"//' -e 's/\\".*//'; input keyevent KEYCODE_BACK; input keyevent KEYCODE_BACK"`;
 
             let imeiRaw = await adb(imeiCmd);
             let imeiMatch = imeiRaw.match(/\d{15}/);
