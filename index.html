@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ADB Inspector PRO</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px
+        }
+
+        .card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 15px
+        }
+
+        .device-container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            border-radius: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        #btnScan {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        }
+
+        #btnScan:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .btn-pdf {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        }
+
+        .btn-pdf:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .btn:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        .btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            opacity: 0.6;
+            transform: none !important;
+            box-shadow: none;
+        }
+
+        .scanning-pulse {
+            animation: pulse-green 1.5s infinite;
+        }
+
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        .copy-btn {
+            padding: 2px 8px;
+            font-size: 11px;
+            background: #475569;
+            cursor: pointer;
+        }
+
+        #device-screen {
+            width: 180px;
+            height: 300px;
+            border-radius: 10px;
+            border: 6px solid #334155;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #475569;
+            font-weight: bold;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        th,
+        td {
+            border: 1px solid #334155;
+            padding: 8px
+        }
+
+        .hidden {
+            display: none
+        }
+
+        .loader {
+            border: 4px solid #334155;
+            border-top: 4px solid #22c55e;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #1e293b;
+            border-left: 4px solid #fbbf24;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>ADB Inspector PRO</h1>
+    <div style="margin: 2rem 0; display: flex; gap: 15px; justify-content: center;">
+        <button id="btnScan" class="btn" onclick="scan()">🔍 Escanear Dispositivo</button>
+        <button class="btn btn-pdf" onclick="downloadPDF()">📄 Generar Reporte PDF</button>
+    </div>
+    <div id="status" class="hidden"></div>
+    <div id="verdict" class="card hidden"></div>
+    <div class="device-container">
+        <div id="info" class="card" style="flex: 1;"></div>
+        <div id="device-img" class="card hidden" style="width: auto;">
+            <div id="device-screen"></div>
+        </div>
+    </div>
+    <div id="checks" class="card"></div>
+    <div id="packages" class="card hidden"></div>
+    <div id="health" class="card hidden"></div>
+
+    <script>
+        const { jsPDF } = window.jspdf;
+        let data = {};
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text);
+            alert('Copiado al portapapeles: ' + text);
+        }
+
+        async function adb(cmd) {
+            return await window.adbAPI.run(cmd);
+        }
+
+        async function scan() {
+            const statusDiv = document.getElementById('status');
+            const btnScan = document.getElementById('btnScan');
+
+            statusDiv.classList.remove('hidden');
+            btnScan.disabled = true;
+            btnScan.classList.add('scanning-pulse');
+
+            let found = false;
+            while (!found) {
+                statusDiv.innerHTML = '<div class="loader"></div> Buscando dispositivo...';
+
+                let res = await adb("adb devices");
+                // Verificamos si hay un dispositivo conectado (evitando la cabecera de adb)
+                const lines = res.trim().split('\n');
+                if (lines.length > 1 && lines.some(line => line.includes('\tdevice'))) {
+                    found = true;
+                    break;
+                }
+
+                statusDiv.innerHTML = '<div class="loader"></div> <span style="color: #fbbf24;">Dispositivo no detectado. Por favor, conecte un teléfono y active la depuración USB...</span>';
+                await new Promise(r => setTimeout(r, 2000));
+            }
+
+            statusDiv.innerHTML = '<span style="color: #22c55e;">✔ ¡Dispositivo detectado! Iniciando análisis...</span>';
+            setTimeout(() => { 
+                statusDiv.classList.add('hidden'); 
+                btnScan.disabled = false;
+                btnScan.classList.remove('scanning-pulse');
+            }, 2000);
+            loadInfo();
+        }
+
+        async function loadInfo() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.classList.remove('hidden');
+            statusDiv.innerHTML = '<div class="loader"></div> Obteniendo información del sistema...';
+
+            data.model = (await adb("adb shell getprop ro.product.model")).trim();
+            data.brand = (await adb("adb shell getprop ro.product.brand")).trim();
+            data.android = (await adb("adb shell getprop ro.build.version.release")).trim();
+            data.security_patch = (await adb("adb shell getprop ro.build.version.security_patch")).trim();
+            data.baseband = (await adb("adb shell getprop gsm.version.baseband")).trim();
+            data.serial = (await adb("adb get-serialno")).trim();
+            data.build = (await adb("adb shell getprop ro.build.display.id")).trim();
+            
+            // Intentamos obtener el CSC (Country Specific Code) o Sales Code
+            let csc = (await adb("adb shell getprop ro.csc.sales_code")).trim();
+            if (!csc) csc = (await adb("adb shell getprop ril.sales_code")).trim();
+            data.csc = csc || "No detectado";
+
+            document.getElementById('info').innerHTML = `
+    <h2>${data.brand} ${data.model}</h2>
+    <p>Android: ${data.android}</p>
+    <p>Parche de Seguridad: <strong>${data.security_patch}</strong></p>
+    <p id="imei-display">IMEI: <em>Obteniendo...</em></p>
+    <p>S/N: <strong>${data.serial}</strong> <button class="copy-btn" onclick="copyToClipboard('${data.serial}')">Copiar</button></p>
+    <p>Baseband: ${data.baseband}</p>
+    <p>Número de compilación: <strong>${data.build}</strong></p>
+    <p>Software del proveedor (CSC): <strong>${data.csc}</strong></p>
+  `;
+
+            updateDeviceImage(data.brand, data.model);
+            checks();
+        }
+
+        function updateDeviceImage(brand, model) {
+            const screen = document.getElementById('device-screen');
+            document.getElementById('device-img').classList.remove('hidden');
+            screen.innerHTML = `
+                <div style="padding-top: 60px;">
+                    <div style="font-size: 50px;">📱</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 20px; letter-spacing: 1px;">HARDWARE</div>
+                    <div style="font-size: 16px; color: white; margin-top: 10px; text-transform: uppercase;">${brand}<br>${model}</div>
+                </div>
+            `;
+        }
+
+        async function checks() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = '<div class="loader"></div> Verificando Red e Integridad...';
+
+            let dnsRaw = await adb("adb shell settings get global private_dns_specifier");
+            let dnsModeRaw = await adb("adb shell settings get global private_dns_mode");
+
+            // VPN: Buscamos específicamente una red conectada que sea de tipo VPN.
+            // Esto evita detectar servicios en espera o fábricas de red inactivas.
+            let vpnCheck = await adb("adb shell \"dumpsys connectivity | grep 'CONNECTED/CONNECTED' | grep -i 'VPN'\"");
+
+            data.dns = dnsRaw.trim();
+            data.dns_mode = dnsModeRaw.trim();
+            data.vpn_status = vpnCheck.trim().length > 0;
+
+            let payjoy1 = await adb("adb shell pm list packages com.payjoy.access");
+            let payjoy2 = await adb("adb shell pm list packages com.motorola.android.overlay.payjoy");
+            data.payjoy = (payjoy1 + payjoy2).trim();
+
+            // Chequeo de Bloqueo de Operador (SIM Lock)
+            const simLockRaw = await adb("adb shell dumpsys telephony.registry");
+            const isSimLocked = simLockRaw.includes("simLocked") ||
+                simLockRaw.includes("NETWORK_LOCKED") ||
+                simLockRaw.includes("SIM_NETWORK_LOCKED");
+
+            data.sim_lock = isSimLocked ? "Bloqueada" : "Desbloqueada";
+
+            // Bypass de IMEI usando UI Automator (Simula apertura de Dialer y lectura de pantalla)
+            // Este método es necesario en Android 10+ para obtener el IMEI sin permisos de sistema.
+            statusDiv.innerHTML = '<div class="loader"></div> Leyendo IMEI (Bypass UI)...';
+            const imeiCmd = `adb shell "input keyevent KEYCODE_CALL; sleep 1; input text '*#06#'; sleep 1; uiautomator dump --compressed /dev/stdout | sed 's/></\\n/g' | grep -A1 IMEI | tail -n1 | sed -e 's/.*text=\\"//' -e 's/\\".*//'; input keyevent KEYCODE_BACK; input keyevent KEYCODE_BACK"`;
+
+            let imeiRaw = await adb(imeiCmd);
+            let imeiMatch = imeiRaw.match(/\d{15}/);
+
+            const imeiDisplay = document.getElementById('imei-display');
+            if (imeiMatch) {
+                data.imei = imeiMatch[0];
+                imeiDisplay.innerHTML = `IMEI: <strong>${data.imei}</strong> <button class="copy-btn" onclick="copyToClipboard('${data.imei}')">Copiar</button>`;
+            } else {
+                data.imei = "No detectable";
+                imeiDisplay.innerHTML = `IMEI: <span style="color: #fbbf24;">No detectable (Pantalla bloqueada)</span>`;
+            }
+
+            const dnsDisplay = (data.dns === 'null' || !data.dns) ? '<span style="color: #22c55e; font-weight: bold;">NO CONFIGURADO</span>' : data.dns;
+            const dnsModeDisplay = (data.dns_mode === 'off' || data.dns_mode === 'null') ? '<span style="color: #22c55e; font-weight: bold;">NO CONFIGURADO</span>' : data.dns_mode;
+            const vpnDisplay = data.vpn_status ? '<span style="color: #ef4444; font-weight: bold;">SÍ (ACTIVO)</span>' : '<span style="color: #22c55e; font-weight: bold;">NO CONFIGURADO</span>';
+
+            const isLocked = data.vpn_status || (data.dns && data.dns !== 'null') || data.payjoy.length > 0 || isSimLocked;
+            const verdictDiv = document.getElementById('verdict');
+
+            verdictDiv.classList.remove('hidden');
+            if (isLocked) {
+                verdictDiv.style.borderLeft = "6px solid #ef4444";
+                verdictDiv.innerHTML = `
+                    <h3 style="color: #ef4444; margin-top: 0;">⚠️ Aviso de Seguridad</h3>
+                    <p>Este dispositivo presenta indicios de <strong>administración remota o bloqueos activos</strong> (PayJoy, SIM Lock, DNS filtrado o VPN).</p>
+                `;
+            } else {
+                verdictDiv.style.borderLeft = "6px solid #22c55e";
+                verdictDiv.innerHTML = `
+                    <h3 style="color: #22c55e; margin-top: 0;">✅ Dispositivo Limpio</h3>
+                    <p>Este dispositivo no parece tener un bloqueo administrativo activo.</p>
+                `;
+            }
+
+            document.getElementById('checks').innerHTML = `
+    <h3>Chequeos</h3>
+    <p>DNS: ${dnsDisplay}</p>
+    <p>Modo DNS: ${dnsModeDisplay}</p>
+    <p>VPN detectado: ${vpnDisplay}</p>
+    <p>Bloqueo de Red (SIM): <span style="color: ${isSimLocked ? '#ef4444' : '#22c55e'}; font-weight: bold;">${data.sim_lock.toUpperCase()}</span></p>
+    <p>PayJoy: ${data.payjoy || '<span style="color: #22c55e;">No detectado</span>'}</p>
+  `;
+
+            packages();
+        }
+
+        async function deviceHealth() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = '<div class="loader"></div> Analizando salud del hardware...';
+
+            const batteryRaw = await adb("adb shell dumpsys battery");
+            const sensorsRaw = await adb("adb shell dumpsys sensorservice");
+
+            // Procesamiento de Batería
+            const getBat = (key) => (batteryRaw.match(new RegExp(`${key}: (\\d+)`)) || [])[1];
+            const level = getBat('level');
+            const temp = (getBat('temperature') / 10).toFixed(1);
+            const healthCode = getBat('health');
+            const healthMap = { 1: "Desconocido", 2: "Bueno", 3: "Sobrecalentado", 4: "Muerta", 5: "Sobrevoltaje", 6: "Falla", 7: "Frío" };
+
+            data.health = {
+                battery: { level, temp, status: healthMap[healthCode] || "N/A" },
+                sensors: {
+                    accel: sensorsRaw.toLowerCase().includes("accelerometer"),
+                    gyro: sensorsRaw.toLowerCase().includes("gyroscope"),
+                    prox: sensorsRaw.toLowerCase().includes("proximity"),
+                    light: sensorsRaw.toLowerCase().includes("light"),
+                    mag: sensorsRaw.toLowerCase().includes("magnetic")
+                }
+            };
+
+            document.getElementById('health').classList.remove('hidden');
+            document.getElementById('health').innerHTML = `
+                <h3>Salud del Hardware</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                    <div style="background: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid #334155;">
+                        <h4 style="margin: 0 0 10px 0; color: #22c55e;">🔋 Batería</h4>
+                        <p style="margin: 5px 0;">Carga: <strong>${level}%</strong></p>
+                        <p style="margin: 5px 0;">Temperatura: <strong>${temp}°C</strong></p>
+                        <p style="margin: 5px 0;">Estado: <strong style="color: ${healthCode == 2 ? '#22c55e' : '#ef4444'}">${data.health.battery.status}</strong></p>
+                    </div>
+                    <div style="background: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid #334155;">
+                        <h4 style="margin: 0 0 10px 0; color: #22c55e;">🛠 Estado de Sensores</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 0.9em;">
+                            <span>Acelerómetro: ${data.health.sensors.accel ? '✅' : '❌'}</span>
+                            <span>Giroscopio: ${data.health.sensors.gyro ? '✅' : '❌'}</span>
+                            <span>Proximidad: ${data.health.sensors.prox ? '✅' : '❌'}</span>
+                            <span>Luz Amb.: ${data.health.sensors.light ? '✅' : '❌'}</span>
+                            <span>Magnetómetro: ${data.health.sensors.mag ? '✅' : '❌'}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            statusDiv.classList.add('hidden');
+        }
+
+        async function packages() {
+            let disabledRaw = await adb("adb shell pm list packages -d");
+            let allRaw = await adb("adb shell pm list packages");
+            let uninstalledRaw = await adb("adb shell pm list packages -u");
+
+            let disabled = disabledRaw.split("\n").filter(p => p.trim().startsWith("package:"));
+            let all = allRaw.split("\n").filter(p => p.trim().startsWith("package:"));
+            let uninstalled = uninstalledRaw.split("\n").filter(p => p.trim().startsWith("package:"));
+
+            // Los eliminados son los que están en la lista extendida (-u) pero no están instalados actualmente
+            let removedOnly = uninstalled.filter(p => !all.includes(p));
+
+            let rows = disabled.map(p => `<tr><td>${p.replace("package:", "").trim()}</td><td style="color: #fbbf24;">Desactivado</td></tr>`).join("");
+            rows += removedOnly.map(p => `<tr><td>${p.replace("package:", "").trim()}</td><td style="color: #ef4444;">Eliminado</td></tr>`).join("");
+
+            // Guardamos para el reporte
+            data.packages_list = [
+                ...disabled.map(p => ({ name: p.replace("package:", "").trim(), status: 'Desactivado' })),
+                ...removedOnly.map(p => ({ name: p.replace("package:", "").trim(), status: 'Eliminado' }))
+            ];
+
+            document.getElementById('packages').classList.remove('hidden');
+            document.getElementById('packages').innerHTML = `
+    <h3>Paquetes No Activos</h3>
+    <table>
+      <tr><th>Paquete</th><th>Estado</th></tr>
+      ${rows || '<tr><td colspan="2" style="text-align:center;">No se detectaron paquetes eliminados o desactivados.</td></tr>'}
+    </table>
+  `;
+
+            await deviceHealth();
+        }
+
+        function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const primaryColor = [15, 23, 42]; // #0f172a
+            const greenColor = [34, 197, 94]; // #22c55e
+            const redColor = [239, 68, 68];   // #ef4444
+
+            // --- ENCABEZADO ---
+            doc.setFillColor(...primaryColor);
+            doc.rect(0, 0, 210, 40, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(22);
+            doc.setFont("helvetica", "bold");
+            doc.text("REPORTE TÉCNICO DE INTEGRIDAD", 105, 20, { align: "center" });
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            doc.text(`Generado el: ${new Date().toLocaleString()}`, 105, 30, { align: "center" });
+
+            let y = 50;
+
+            // --- INFORMACIÓN DEL DISPOSITIVO ---
+            doc.setTextColor(...primaryColor);
+            doc.setFontSize(14);
+            doc.text("1. IDENTIFICACIÓN DEL HARDWARE", 10, y);
+            doc.line(10, y + 2, 200, y + 2);
+            y += 10;
+
+            doc.setFontSize(11);
+            doc.setTextColor(60, 60, 60);
+            const info = [
+                [`Marca/Modelo: ${data.brand} ${data.model}`, `Android: ${data.android}`],
+                [`IMEI: ${data.imei}`, `S/N: ${data.serial}`],
+                [`Parche Seguridad: ${data.security_patch}`, `CSC: ${data.csc}`],
+                [`Build: ${data.build}`, `Baseband: ${data.baseband}`]
+            ];
+            info.forEach(row => {
+                doc.text(row[0], 15, y);
+                doc.text(row[1], 110, y);
+                y += 7;
+            });
+
+            // --- VEREDICTO ---
+            y += 10;
+            const isLocked = data.vpn_status || (data.dns && data.dns !== 'null') || (data.payjoy && data.payjoy.length > 0) || (data.sim_lock === "Bloqueada");
+            doc.setFillColor(...(isLocked ? redColor : greenColor));
+            doc.rect(10, y, 190, 15, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont("helvetica", "bold");
+            const verdictText = isLocked ? "ESTADO: RIESGO DETECTADO / BLOQUEO ADMINISTRATIVO" : "ESTADO: DISPOSITIVO SIN RESTRICCIONES DETECTADAS";
+            doc.text(verdictText, 105, y + 9, { align: "center" });
+
+            // --- CHEQUEOS TÉCNICOS ---
+            y += 25;
+            doc.setTextColor(...primaryColor);
+            doc.setFontSize(14);
+            doc.text("2. DIAGNÓSTICO DE RED E INTEGRIDAD", 10, y);
+            doc.line(10, y + 2, 200, y + 2);
+            y += 10;
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "normal");
+            doc.text(`DNS Personalizado: ${data.dns || 'No detectado'}`, 15, y); y += 7;
+            doc.text(`VPN Activa: ${data.vpn_status ? 'SÍ' : 'NO'}`, 15, y); y += 7;
+            doc.text(`SIM Lock: ${data.sim_lock}`, 15, y); y += 7;
+            doc.text(`PayJoy/Admin App: ${data.payjoy ? 'DETECTADO' : 'No detectado'}`, 15, y);
+
+            // --- SALUD ---
+            y += 15;
+            doc.text("3. SALUD DEL HARDWARE", 10, y);
+            doc.line(10, y + 2, 200, y + 2);
+            y += 10;
+            doc.text(`Batería: ${data.health.battery.level}% (${data.health.battery.status})`, 15, y);
+            doc.text(`Temperatura: ${data.health.battery.temp}°C`, 110, y);
+
+            // Pie de página
+            doc.setFontSize(8);
+            doc.setTextColor(150, 150, 150);
+            doc.text("Este reporte es generado mediante ADB Inspector PRO y tiene fines informativos.", 105, 285, { align: "center" });
+
+            doc.save(`Reporte_${data.model}_${data.serial}.pdf`);
+        }
+    </script>
+
+</body>
+
+</html>
