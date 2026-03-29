@@ -342,7 +342,7 @@
             // Bypass de IMEI usando UI Automator (Simula apertura de Dialer y lectura de pantalla)
             // Este método es necesario en Android 10+ para obtener el IMEI sin permisos de sistema.
             statusDiv.innerHTML = '<div class="loader"></div> Leyendo IMEI (Bypass UI)...';
-            const imeiCmd = `adb shell "am force-stop com.google.android.dialer; am force-stop com.android.dialer; am force-stop com.samsung.android.dialer; input keyevent KEYCODE_CALL; sleep 1; input text '*#06#'; sleep 1; uiautomator dump --compressed /dev/stdout | sed 's/></\\n/g' | grep -A1 IMEI | tail -n1 | sed -e 's/.*text=\\"//' -e 's/\\".*//'; input keyevent KEYCODE_BACK; input keyevent KEYCODE_BACK"`;
+            const imeiCmd = `adb shell "am force-stop com.google.android.dialer; am force-stop com.android.dialer; am force-stop com.samsung.android.dialer; input keyevent KEYCODE_CALL; sleep 1; input text '*#06#'; sleep 1; uiautomator dump --compressed /dev/stdout | sed 's/></\\n/g' | grep -A1 IMEI | tail -n1 | sed -e 's/.*text=\\"//' -e 's/\\".*//'; am force-stop com.google.android.dialer; am force-stop com.android.dialer; am force-stop com.samsung.android.dialer; input keyevent KEYCODE_HOME"`;
 
             let imeiRaw = await adb(imeiCmd);
             let imeiMatch = imeiRaw.match(/\d{15}/);
@@ -362,6 +362,8 @@
 
             const isLocked = data.vpn_status || (data.dns && data.dns !== 'null') || data.payjoy.length > 0 || isSimLocked;
             const verdictDiv = document.getElementById('verdict');
+            let phoneMsg = "";
+            let phoneTitle = "";
 
             verdictDiv.classList.remove('hidden');
             if (isLocked) {
@@ -370,13 +372,21 @@
                     <h3 style="color: #ef4444; margin-top: 0;">⚠️ Aviso de Seguridad</h3>
                     <p>Este dispositivo presenta indicios de <strong>administración remota o bloqueos activos</strong> (PayJoy, SIM Lock, DNS filtrado o VPN).</p>
                 `;
+                phoneTitle = "ALERTA_DE_INTEGRIDAD";
+                phoneMsg = "ESTADO:_RIESGO_DETECTADO._Se_han_hallado_bloqueos_activos_o_administracion_remota.";
             } else {
                 verdictDiv.style.borderLeft = "6px solid #22c55e";
                 verdictDiv.innerHTML = `
                     <h3 style="color: #22c55e; margin-top: 0;">✅ Dispositivo Limpio</h3>
                     <p>Este dispositivo no parece tener un bloqueo administrativo activo.</p>
                 `;
+                phoneTitle = "VERIFICACION_EXITOSA";
+                phoneMsg = "ESTADO:_OFICIAL._Dispositivo_libre_de_bloqueos_y_restricciones.";
             }
+
+            // Enviar Notificación a la barra de estado
+            // Usamos comillas dobles externas y simples internas para que ADB no rompa el texto por los espacios o caracteres
+            await adb(`adb shell "cmd notification post -S bigtext -t '${phoneTitle.replace(/_/g, ' ')}' 'IntegrityCheck' '${phoneMsg.replace(/_/g, ' ')}'"`);
 
             document.getElementById('checks').innerHTML = `
     <h3>Chequeos</h3>
