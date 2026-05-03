@@ -3,11 +3,13 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>ADB Inspector PRO</title>
+    <title>Audroid Signature</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body {
             font-family: Arial;
+            margin: 0;
+            /* Remove default body margin */
             background: #0f172a;
             color: #e2e8f0;
             padding: 20px
@@ -79,9 +81,17 @@
         }
 
         @keyframes pulse-green {
-            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(34, 197, 94, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+            0% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 15px rgba(34, 197, 94, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+            }
         }
 
         .copy-btn {
@@ -149,24 +159,73 @@
             }
         }
 
-        #status {
+        /* Navbar styles */
+        .navbar {
+            background: #1e293b;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .navbar-brand {
+            font-size: 24px;
+            font-weight: 700;
+            color: #e2e8f0;
+            letter-spacing: 0.5px;
+        }
+
+        /* Footer styles */
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #334155;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        /* Animation improvements for status and verdict */
+        .fade-element {
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+
+        .fade-element.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Ensure status and verdict have their original styles when shown */
+        #status.fade-element.show {
             margin: 20px 0;
             padding: 15px;
             border-radius: 8px;
             background: #1e293b;
             border-left: 4px solid #fbbf24;
         }
+
+        #status {
+            /* Base styles for status, will be combined with .fade-element.show */
+        }
     </style>
 </head>
 
 <body>
-    <h1>ADB Inspector PRO</h1>
+    <nav class="navbar">
+        <div class="navbar-brand">Audroid Signature</div>
+    </nav>
+
     <div style="margin: 2rem 0; display: flex; gap: 15px; justify-content: center;">
         <button id="btnScan" class="btn" onclick="scan()">🔍 Escanear Dispositivo</button>
-        <button class="btn btn-pdf" onclick="downloadPDF()">📄 Generar Reporte PDF</button>
+        <button id="btnPDF" class="btn btn-pdf hidden" onclick="downloadPDF()">📄 Generar Reporte PDF</button>
     </div>
-    <div id="status" class="hidden"></div>
-    <div id="verdict" class="card hidden"></div>
+    <div id="status" class="fade-element"></div>
+    <div id="verdict" class="card fade-element"></div>
     <div class="device-container">
         <div id="info" class="card" style="flex: 1;"></div>
         <div id="device-img" class="card hidden" style="width: auto;">
@@ -176,6 +235,11 @@
     <div id="checks" class="card"></div>
     <div id="packages" class="card hidden"></div>
     <div id="health" class="card hidden"></div>
+
+    <footer class="footer">
+        <p>&copy; 2026 Audroid Signature. Desarrollado por vazquezsg.com</p>
+        <p>Agradecimientos a GSMArena por las imágenes de dispositivos.</p>
+    </footer>
 
     <script>
         const { jsPDF } = window.jspdf;
@@ -193,10 +257,12 @@
         async function scan() {
             const statusDiv = document.getElementById('status');
             const btnScan = document.getElementById('btnScan');
+            const btnPDF = document.getElementById('btnPDF');
 
-            statusDiv.classList.remove('hidden');
+            statusDiv.classList.add('show');
             btnScan.disabled = true;
             btnScan.classList.add('scanning-pulse');
+            btnPDF.classList.add('hidden');
 
             let found = false;
             while (!found) {
@@ -215,8 +281,8 @@
             }
 
             statusDiv.innerHTML = '<span style="color: #22c55e;">✔ ¡Dispositivo detectado! Iniciando análisis...</span>';
-            setTimeout(async () => { 
-                statusDiv.classList.add('hidden'); 
+            setTimeout(async () => {
+                statusDiv.classList.remove('show');
                 btnScan.disabled = false;
                 btnScan.classList.remove('scanning-pulse');
                 await loadInfo();
@@ -225,7 +291,7 @@
 
         async function loadInfo() {
             const statusDiv = document.getElementById('status');
-            statusDiv.classList.remove('hidden');
+            statusDiv.classList.add('show');
             statusDiv.innerHTML = '<div class="loader"></div> Obteniendo información del sistema...';
 
             data.model = (await adb("adb shell getprop ro.product.model")).trim();
@@ -235,14 +301,14 @@
             data.baseband = (await adb("adb shell getprop gsm.version.baseband")).trim();
             data.serial = (await adb("adb get-serialno")).trim();
             data.build = (await adb("adb shell getprop ro.build.display.id")).trim();
-            
+
             // Intentamos obtener el CSC (Country Specific Code) o Sales Code
             let csc = (await adb("adb shell getprop ro.csc.sales_code")).trim();
             if (!csc) csc = (await adb("adb shell getprop ril.sales_code")).trim();
             data.csc = csc || "No detectado";
-
+            const brandCapitalized = data.brand.charAt(0).toUpperCase() + data.brand.slice(1);
             document.getElementById('info').innerHTML = `
-    <h2>${data.brand} ${data.model}</h2>
+    <h2>${brandCapitalized} ${data.model}</h2>
     <p>Android: ${data.android}</p>
     <p>Parche de Seguridad: <strong>${data.security_patch}</strong></p>
     <p id="imei-display">IMEI: <em>Obteniendo...</em></p>
@@ -266,7 +332,7 @@
             // 2. Intentamos cargar imagen de internet con 3 intentos (Base, 4G, 5G)
             const cleanBrand = brand.toLowerCase().trim().replace(/\s+/g, '-');
             let cleanModel = model.toLowerCase().trim();
-            
+
             // Evitar que se repita la marca si el modelo ya la incluye (ej: samsung-samsung-galaxy)
             if (cleanModel.startsWith(cleanBrand)) {
                 cleanModel = cleanModel.replace(cleanBrand, '').trim();
@@ -279,7 +345,7 @@
                 if (match) cleanModel = match[1];
                 if (!cleanModel.includes('galaxy')) cleanModel = 'galaxy-' + cleanModel;
             }
-            
+
             cleanModel = cleanModel.replace(/\s+/g, '-');
             const basePath = `https://fdn2.gsmarena.com/vv/bigpic/${cleanBrand}-${cleanModel}`;
             const attempts = ['', '-4g', '-5g'];
@@ -327,11 +393,15 @@
             data.dns_mode = dnsModeRaw.trim();
             data.vpn_status = vpnCheck.trim().length > 0;
 
+            // Bonus de Auditoría: Provisión y Setup
+            data.provisioned = (await adb("adb shell settings get global device_provisioned")).trim();
+            data.setup_complete = (await adb("adb shell settings get secure user_setup_complete")).trim();
+
             let payjoy1 = await adb("adb shell pm list packages com.payjoy.access");
             let payjoy2 = await adb("adb shell pm list packages com.motorola.android.overlay.payjoy");
             data.payjoy = (payjoy1 + payjoy2).trim();
 
-            // Chequeo de Bloqueo de Operador (SIM Lock)
+            // Revisión de Bloqueo de Operador (SIM Lock)
             const simLockRaw = await adb("adb shell dumpsys telephony.registry");
             const isSimLocked = simLockRaw.includes("simLocked") ||
                 simLockRaw.includes("NETWORK_LOCKED") ||
@@ -371,30 +441,41 @@
                 verdictDiv.innerHTML = `
                     <h3 style="color: #ef4444; margin-top: 0;">⚠️ Aviso de Seguridad</h3>
                     <p>Este dispositivo presenta indicios de <strong>administración remota o bloqueos activos</strong> (PayJoy, SIM Lock, DNS filtrado o VPN).</p>
+                    <p>Para más detalles, consulte la sección de REVISIÓN TÉCNICA.</p>
                 `;
                 phoneTitle = "ALERTA_DE_INTEGRIDAD";
-                phoneMsg = "ESTADO:_RIESGO_DETECTADO._Se_han_hallado_bloqueos_activos_o_administracion_remota.";
+                phoneMsg = "ESTADO:_RIESGO_DETECTADO._Se_han_encontrado_bloqueos_activos_o_administracion_remota.";
             } else {
                 verdictDiv.style.borderLeft = "6px solid #22c55e";
                 verdictDiv.innerHTML = `
                     <h3 style="color: #22c55e; margin-top: 0;">✅ Dispositivo Limpio</h3>
-                    <p>Este dispositivo no parece tener un bloqueo administrativo activo.</p>
+                    <p>Este dispositivo no parece tener un bloqueo administrativo activo o restricciones significativas.</p>
                 `;
                 phoneTitle = "VERIFICACION_EXITOSA";
                 phoneMsg = "ESTADO:_OFICIAL._Dispositivo_libre_de_bloqueos_y_restricciones.";
             }
+            verdictDiv.classList.add('show');
 
             // Enviar Notificación a la barra de estado
             // Usamos comillas dobles externas y simples internas para que ADB no rompa el texto por los espacios o caracteres
             await adb(`adb shell "cmd notification post -S bigtext -t '${phoneTitle.replace(/_/g, ' ')}' 'IntegrityCheck' '${phoneMsg.replace(/_/g, ' ')}'"`);
 
             document.getElementById('checks').innerHTML = `
-    <h3>Chequeos</h3>
+    <h3>REVISIÓN TÉCNICA</h3>
     <p>DNS: ${dnsDisplay}</p>
-    <p>Modo DNS: ${dnsModeDisplay}</p>
+    <p>
+        Modo DNS: 
+            <span style="color: ${dnsModeDisplay === 'hostname' ? '#ef4444' : '#22c55e'}; font-weight: bold;">
+                ${dnsModeDisplay}
+            </span>
+    </p>
     <p>VPN detectado: ${vpnDisplay}</p>
     <p>Bloqueo de Red (SIM): <span style="color: ${isSimLocked ? '#ef4444' : '#22c55e'}; font-weight: bold;">${data.sim_lock.toUpperCase()}</span></p>
     <p>PayJoy: ${data.payjoy || '<span style="color: #22c55e;">No detectado</span>'}</p>
+    <p style="border-top: 1px solid #334155; padding-top: 10px; margin-top: 10px;">
+        Provisión: <span style="color: ${data.provisioned === '1' ? '#22c55e' : '#fbbf24'}">${data.provisioned === '1' ? '✅ COMPLETA' : '⚠️ INCOMPLETA'}</span> | 
+        Setup: <span style="color: ${data.setup_complete === '1' ? '#22c55e' : '#fbbf24'}">${data.setup_complete === '1' ? '✅ FINALIZADO' : '⚠️ PENDIENTE'}</span>
+    </p>
   `;
 
             packages();
@@ -448,7 +529,8 @@
                 </div>
             `;
 
-            statusDiv.classList.add('hidden');
+            statusDiv.classList.remove('show');
+            document.getElementById('btnPDF').classList.remove('hidden');
         }
 
         async function packages() {
@@ -495,6 +577,8 @@
             const primaryColor = [15, 23, 42]; // #0f172a
             const greenColor = [34, 197, 94]; // #22c55e
             const redColor = [239, 68, 68];   // #ef4444
+            const labelColor = [71, 85, 105]; // #475569
+            const textColor = [30, 41, 59];  // #1e293b
 
             // --- ENCABEZADO ---
             doc.setFillColor(...primaryColor);
@@ -517,17 +601,25 @@
             y += 10;
 
             doc.setFontSize(11);
-            doc.setTextColor(60, 60, 60);
-            const info = [
-                [`Marca/Modelo: ${data.brand} ${data.model}`, `Android: ${data.android}`],
-                [`IMEI: ${data.imei}`, `S/N: ${data.serial}`],
-                [`Parche Seguridad: ${data.security_patch}`, `CSC: ${data.csc}`],
-                [`Build: ${data.build}`, `Baseband: ${data.baseband}`]
+            const hardwareInfo = [
+                ["Marca/Modelo:", `${data.brand} ${data.model}`, "Versión Android:", data.android],
+                ["IMEI:", data.imei, "Número Serial:", data.serial],
+                ["Seguridad:", data.security_patch, "CSC (Región):", data.csc],
+                ["Compilación:", data.build, "Baseband:", data.baseband]
             ];
-            info.forEach(row => {
+
+            hardwareInfo.forEach(row => {
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(...labelColor);
                 doc.text(row[0], 15, y);
-                doc.text(row[1], 110, y);
-                y += 7;
+                doc.text(row[2], 110, y);
+
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(...textColor);
+                doc.text(row[1], 45, y);
+                doc.text(row[3], 145, y);
+
+                y += 6;
             });
 
             // --- VEREDICTO ---
@@ -540,7 +632,7 @@
             const verdictText = isLocked ? "ESTADO: RIESGO DETECTADO / BLOQUEO ADMINISTRATIVO" : "ESTADO: DISPOSITIVO SIN RESTRICCIONES DETECTADAS";
             doc.text(verdictText, 105, y + 9, { align: "center" });
 
-            // --- CHEQUEOS TÉCNICOS ---
+            // --- REVISIONES TÉCNICOS ---
             y += 25;
             doc.setTextColor(...primaryColor);
             doc.setFontSize(14);
@@ -549,18 +641,74 @@
             y += 10;
             doc.setFontSize(11);
             doc.setFont("helvetica", "normal");
-            doc.text(`DNS Personalizado: ${data.dns || 'No detectado'}`, 15, y); y += 7;
-            doc.text(`VPN Activa: ${data.vpn_status ? 'SÍ' : 'NO'}`, 15, y); y += 7;
-            doc.text(`SIM Lock: ${data.sim_lock}`, 15, y); y += 7;
-            doc.text(`PayJoy/Admin App: ${data.payjoy ? 'DETECTADO' : 'No detectado'}`, 15, y);
+
+            const integrityInfo = [
+                ["DNS:", data.dns || 'No configurado'],
+                ["Modo DNS:", data.dns_mode || 'Desactivado'],
+                ["VPN Activa:", data.vpn_status ? 'SÍ (DETECTADO)' : 'NO'],
+                ["SIM Lock:", data.sim_lock.toUpperCase()],
+                ["PayJoy/MDM:", data.payjoy ? '⚠️ DETECTADO' : 'Limpio'],
+                ["Provisión:", data.provisioned === '1' ? 'COMPLETA' : 'INCOMPLETA'],
+                ["Setup Wizard:", data.setup_complete === '1' ? 'FINALIZADO' : 'PENDIENTE']
+            ];
+
+            integrityInfo.forEach(row => {
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(...labelColor);
+                doc.text(row[0], 15, y);
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(...textColor);
+                if (row[1].includes('⚠️') || row[1].includes('DETECTADO') || row[1] === 'BLOQUEADA') doc.setTextColor(...redColor);
+                doc.text(row[1], 45, y);
+                y += 6;
+            });
 
             // --- SALUD ---
             y += 15;
             doc.text("3. SALUD DEL HARDWARE", 10, y);
             doc.line(10, y + 2, 200, y + 2);
             y += 10;
-            doc.text(`Batería: ${data.health.battery.level}% (${data.health.battery.status})`, 15, y);
-            doc.text(`Temperatura: ${data.health.battery.temp}°C`, 110, y);
+
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...labelColor);
+            doc.text("Batería:", 15, y);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...textColor);
+            doc.text(`${data.health.battery.level}% - Estado: ${data.health.battery.status} (${data.health.battery.temp}°C)`, 45, y);
+            y += 8;
+
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...labelColor);
+            doc.text("Sensores:", 15, y);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...textColor);
+            const sensorStatus = `Acel: ${data.health.sensors.accel ? 'OK' : 'X'} | Giro: ${data.health.sensors.gyro ? 'OK' : 'X'} | Prox: ${data.health.sensors.prox ? 'OK' : 'X'} | Luz: ${data.health.sensors.light ? 'OK' : 'X'}`;
+            doc.text(sensorStatus, 45, y);
+
+            // --- PAQUETES (Nueva página si es necesario) ---
+            if (data.packages_list && data.packages_list.length > 0) {
+                y += 15;
+                if (y > 250) { doc.addPage(); y = 20; }
+                doc.setTextColor(...primaryColor);
+                doc.setFontSize(14);
+                doc.text("4. PAQUETES DESACTIVADOS/ELIMINADOS", 10, y);
+                doc.line(10, y + 2, 200, y + 2);
+                y += 10;
+                doc.setFontSize(9);
+                doc.setFont("courier", "normal");
+
+                data.packages_list.forEach(pkg => {
+                    if (y > 275) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.setTextColor(...labelColor);
+                    doc.text(`[${pkg.status.toUpperCase()}]`, 15, y);
+                    doc.setTextColor(...textColor);
+                    doc.text(pkg.name, 45, y);
+                    y += 5;
+                });
+            }
 
             // Pie de página
             doc.setFontSize(8);
